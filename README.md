@@ -1,4 +1,4 @@
-# school.py
+# SchoolManagementSystem.PY
 
 import bcrypt
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
