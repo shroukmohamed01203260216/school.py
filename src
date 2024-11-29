@@ -1,0 +1,779 @@
+#source code
+
+import bcrypt
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import datetime
+import os
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
+Base = declarative_base()
+
+# تعريف نموذج مستخدم
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    username = Column(String, unique=True)
+    password = Column(String)
+
+# تعريف نموذج معلم
+class Teacher(Base):
+    __tablename__ = 'teacher'
+    teacher_id = Column(Integer, primary_key=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    language_1 = Column(String)
+    phone_no = Column(String)
+
+# تعريف نموذج طالب
+class Student(Base):
+    __tablename__ = 'participant'
+    participant_id = Column(Integer, primary_key=True)
+    first_name = Column(String)
+    last_name = Column(String)
+    phone_no = Column(String)
+    client_name = Column(String)
+    email = Column(String)
+
+# تعريف نموذج دورة
+class Course(Base):
+    __tablename__ = 'course'
+    course_id = Column(Integer, primary_key=True)
+    course_name = Column(String)
+    language = Column(String)
+    level = Column(String)
+    course_length_weeks = Column(Integer)
+    start_date = Column(String) 
+    teacher = Column(Integer, ForeignKey('teacher.teacher_id'))
+    start_time = Column(String)
+
+# Class for database connection
+class DatabaseConnection:
+    def __init__(self):
+        self.engine = create_engine('mysql+mysqlconnector://root:############@localhost/school')
+        Base.metadata.create_all(self.engine) 
+        self.Session = sessionmaker(bind=self.engine)
+
+    def get_session(self):
+        return self.Session()
+
+# Class for database backup
+class DatabaseBackup:
+    def __init__(self, db_url):
+        self.engine = create_engine(db_url)
+        self.Session = sessionmaker(bind=self.engine)
+
+    def backup_database(self):
+        try:
+            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = f"school_backup_{now}.sql"
+
+            command = f"mysqldump -h {self.engine.url.host} -u {self.engine.url.username} -p{self.engine.url.password} {self.engine.url.database} > {backup_file}"
+
+            result = os.system(command)
+
+            if result == 0:
+                messagebox.showinfo("Success", f"Backup created successfully: {backup_file}")
+                self.upload_to_google_drive(backup_file)
+            else:
+                messagebox.showerror("Error", "Failed to create backup")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error while creating backup: {str(e)}")
+
+    def upload_to_google_drive(self, backup_file):
+        try:
+            gauth = GoogleAuth()
+            gauth.LocalWebserverAuth() 
+
+            drive = GoogleDrive(gauth)
+
+            drive_file = drive.CreateFile({'title': os.path.basename(backup_file)})
+            drive_file.SetContentFile(backup_file)
+            drive_file.Upload()
+
+            messagebox.showinfo("Success", "Backup uploaded to Google Drive successfully.")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error while uploading backup to Google Drive: {str(e)}")
+
+# Class for the School Management System application
+class SchoolManagementSystem:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("School Management System")
+        self.root.geometry("1200x850")
+        self.root.configure(bg='yellow')
+
+        self.db = DatabaseConnection()
+        self.backup = DatabaseBackup(self.db.engine.url)
+
+        self.show_login_dialog()
+
+    def show_login_dialog(self):
+        login_dialog = tk.Toplevel(self.root)
+        login_dialog.title("Login")
+        login_dialog.geometry("800x500")
+        login_dialog.configure(bg='yellow')
+
+        title_label = tk.Label(login_dialog, text="Welcome to School Management System", bg='yellow',
+                               font=("Arial", 18, "bold"))
+        title_label.pack(pady=20)
+
+        tk.Label(login_dialog, text="Username:", bg='yellow', font=("Arial", 14)).pack(pady=5)
+        self.username_entry = tk.Entry(login_dialog, font=("Arial", 12))
+        self.username_entry.pack(pady=5)
+
+        tk.Label(login_dialog, text="Password:", bg='yellow', font=("Arial", 14)).pack(pady=5)
+        self.password_entry = tk.Entry(login_dialog, show='*', font=("Arial", 12))
+        self.password_entry.pack(pady=5)
+
+        def validate_login():
+            username = self.username_entry.get()
+            password = self.password_entry.get().encode('utf-8')
+
+            session = self.db.get_session()
+            try:
+                user = session.query(User).filter(User.username == username).first()
+                if user and bcrypt.checkpw(password, user.password.encode('utf-8')):
+                    login_dialog.destroy()
+                    self.setup_main_interface()
+                else:
+                    messagebox.showerror("Login Error", "Invalid username or password")
+            finally:
+                session.close()
+
+        tk.Button(login_dialog, text="Login", command=validate_login,
+                  font=("Arial", 14), bg='blue', fg='white').pack(pady=20)
+
+        tk.Button(login_dialog, text="Create Account", command=self.create_account_dialog,
+                  font=("Arial", 14), bg='green', fg='white').pack(pady=10)
+
+        tk.Button(login_dialog, text="Forgot Password", command=self.forgot_password_dialog,
+                  font=("Arial", 14), bg='orange', fg='white').pack(pady=10)
+
+    def create_account_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Create Account")
+        dialog.geometry("400x400")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="First Name:", bg='yellow').pack(pady=5)
+        first_name_entry = tk.Entry(dialog)
+        first_name_entry.pack(pady=5)
+
+        tk.Label(dialog, text="Last Name:", bg='yellow').pack(pady=5)
+        last_name_entry = tk.Entry(dialog)
+        last_name_entry.pack(pady=5)
+
+        tk.Label(dialog, text="Username:", bg='yellow').pack(pady=5)
+        username_entry = tk.Entry(dialog)
+        username_entry.pack(pady=5)
+
+        tk.Label(dialog, text="Password:", bg='yellow').pack(pady=5)
+        password_entry = tk.Entry(dialog, show='*')
+        password_entry.pack(pady=5)
+
+        def register_account():
+            first_name = first_name_entry.get()
+            last_name = last_name_entry.get()
+            username = username_entry.get()
+            password = password_entry.get()
+
+            if not first_name or not last_name or not username or not password:
+                messagebox.showwarning("Warning", "All fields are required.")
+                return
+
+            hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+            session = self.db.get_session()
+            try:
+                new_user = User(first_name=first_name, last_name=last_name, username=username, password=hashed_password.decode('utf-8'))
+                session.add(new_user)
+                session.commit()
+                messagebox.showinfo("Success", "Account created successfully!")
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error creating account: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Register", command=register_account, bg='blue', fg='white').pack(pady=20)
+
+    def forgot_password_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Forgot Password")
+        dialog.geometry("400x400")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="Enter your username:", bg='yellow').pack(pady=20)
+        username_entry = tk.Entry(dialog)
+        username_entry.pack(pady=5)
+
+        def reset_password():
+            username = username_entry.get()
+            messagebox.showinfo("Password Reset", f"Password reset instructions sent to {username}.")
+            dialog.destroy()
+
+        tk.Button(dialog, text="Reset Password", command=reset_password, bg='blue', fg='white').pack(pady=20)
+
+    def setup_main_interface(self):
+        self.main_frame = tk.Frame(self.root, bg='yellow')
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        tk.Label(self.main_frame, text="Admin is using this application", bg='yellow', font=("Arial", 14)).pack(pady=20)
+
+        self.button_frame = tk.Frame(self.main_frame, bg='yellow')
+        self.button_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.create_buttons()
+
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.teachers_frame = tk.Frame(self.notebook, bg='yellow')
+        self.students_frame = tk.Frame(self.notebook, bg='yellow')
+        self.courses_frame = tk.Frame(self.notebook, bg='yellow')
+
+        self.notebook.add(self.teachers_frame, text="Teachers")
+        self.notebook.add(self.students_frame, text="Students")
+        self.notebook.add(self.courses_frame, text="Courses")
+
+        self.setup_teachers_view()
+        self.setup_students_view()
+        self.setup_courses_view()
+
+        self.load_all_data()
+
+    def create_buttons(self):
+        buttons = [
+            ("Refresh Data", self.load_all_data),
+            ("Generate Report", self.generate_report),
+            ("Backup Database", self.backup.backup_database),
+            ("Add Teacher", self.add_teacher_dialog),
+            ("Delete Teacher", self.delete_teacher_dialog),
+            ("Add Student", self.add_student_dialog),
+            ("Delete Student", self.delete_student_dialog),
+            ("Add Course", self.add_course_dialog),
+            ("Show Participants", self.show_participants)
+        ]
+
+        for text, command in buttons:
+            btn = ttk.Button(self.button_frame, text=text, command=command)
+            btn.pack(side=tk.LEFT, padx=5)
+
+    def setup_teachers_view(self):
+        columns = ("ID", "First Name", "Last Name", "Language 1", "Phone")
+        self.teachers_tree = ttk.Treeview(self.teachers_frame, columns=columns, show="headings")
+
+        for col in columns:
+            self.teachers_tree.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.teachers_tree, c))
+            self.teachers_tree.column(col, width=100)
+
+        search_frame = tk.Frame(self.teachers_frame, bg='yellow')
+        search_frame.pack(pady=5)
+
+        tk.Label(search_frame, text="Search:", bg='yellow').pack(side=tk.LEFT)
+        self.teachers_search_var = tk.StringVar()
+        self.teachers_search_entry = tk.Entry(search_frame, textvariable=self.teachers_search_var,
+                                              font=("Arial", 12), width=30)
+        self.teachers_search_entry.pack(side=tk.LEFT)
+        self.teachers_search_entry.bind("<KeyRelease>", self.search_teachers)
+
+        scrollbar = ttk.Scrollbar(self.teachers_frame, orient=tk.VERTICAL, command=self.teachers_tree.yview)
+        self.teachers_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.teachers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def sort_treeview(self, treeview, col):
+        """Sort the treeview by a given column."""
+        data = [(treeview.item(item)["values"], item) for item in treeview.get_children()]
+        data.sort(key=lambda x: x[0][["ID", "First Name", "Last Name", "Language 1", "Phone"].index(col)]) if treeview == self.teachers_tree else x[0][["ID", "First Name", "Last Name", "Phone", "Client"].index(col)])
+        
+        # Clear the treeview and re-insert sorted data
+        treeview.delete(*treeview.get_children())
+        for item in data:
+            treeview.insert("", "end", iid=item[1], values=item[0])
+
+    def search_teachers(self, event):
+        search_term = self.teachers_search_var.get().lower()
+        self.teachers_tree.delete(*self.teachers_tree.get_children())
+        session = self.db.get_session()
+        try:
+            teachers = session.query(Teacher).all()
+
+            for teacher in teachers:
+                if any(search_term in str(value).lower() for value in (teacher.teacher_id, teacher.first_name, teacher.last_name, teacher.language_1, teacher.phone_no)):
+                    self.teachers_tree.insert("", "end", values=(teacher.teacher_id, teacher.first_name, teacher.last_name, teacher.language_1, teacher.phone_no))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading teacher data: {err}")
+        finally:
+            session.close()
+
+    def setup_students_view(self):
+        columns = ("ID", "First Name", "Last Name", "Phone", "Client")
+        self.students_tree = ttk.Treeview(self.students_frame, columns=columns, show="headings")
+
+        for col in columns:
+            self.students_tree.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.students_tree, c))
+            self.students_tree.column(col, width=100)
+
+        search_frame = tk.Frame(self.students_frame, bg='yellow')
+        search_frame.pack(pady=5)
+
+        tk.Label(search_frame, text="Search:", bg='yellow').pack(side=tk.LEFT)
+        self.students_search_var = tk.StringVar()
+        self.students_search_entry = tk.Entry(search_frame, textvariable=self.students_search_var,
+                                              font=("Arial", 12), width=30)
+        self.students_search_entry.pack(side=tk.LEFT)
+        self.students_search_entry.bind("<KeyRelease>", self.search_students)
+
+        scrollbar = ttk.Scrollbar(self.students_frame, orient=tk.VERTICAL, command=self.students_tree.yview)
+        self.students_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.students_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def search_students(self, event):
+        search_term = self.students_search_var.get().lower()
+        self.students_tree.delete(*self.students_tree.get_children())
+        session = self.db.get_session()
+        try:
+            students = session.query(Student).all()
+
+            for student in students:
+                if any(search_term in str(value).lower() for value in (student.participant_id, student.first_name, student.last_name, student.phone_no, student.client_name, student.email)):
+                    self.students_tree.insert("", "end", values=(student.participant_id, student.first_name, student.last_name, student.phone_no, student.client_name))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading student data: {err}")
+        finally:
+            session.close()
+
+    def setup_courses_view(self):
+        columns = ("ID", "Course Name", "Language", "Level", "Duration (Weeks)", "Start Date", "Teacher", "Start Time")
+        self.courses_tree = ttk.Treeview(self.courses_frame, columns=columns, show="headings")
+
+        for col in columns:
+            self.courses_tree.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.courses_tree, c))
+            self.courses_tree.column(col, width=100)
+
+        search_frame = tk.Frame(self.courses_frame, bg='yellow')
+        search_frame.pack(pady=5)
+
+        tk.Label(search_frame, text="Search:", bg='yellow').pack(side=tk.LEFT)
+        self.courses_search_var = tk.StringVar()
+        self.courses_search_entry = tk.Entry(search_frame, textvariable=self.courses_search_var,
+                                              font=("Arial", 12), width=30)
+        self.courses_search_entry.pack(side=tk.LEFT)
+        self.courses_search_entry.bind("<KeyRelease>", self.search_courses)
+
+        scrollbar = ttk.Scrollbar(self.courses_frame, orient=tk.VERTICAL, command=self.courses_tree.yview)
+        self.courses_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.courses_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def search_courses(self, event):
+        search_term = self.courses_search_var.get().lower()
+        self.courses_tree.delete(*self.courses_tree.get_children())
+        session = self.db.get_session()
+        try:
+            courses = session.query(Course).all()
+
+            for course in courses:
+                if any(search_term in str(value).lower() for value in (course.course_id, course.course_name, course.language, course.level, course.course_length_weeks, course.start_date, course.start_time)):
+                    self.courses_tree.insert("", "end", values=(course.course_id, course.course_name, course.language, course.level, course.course_length_weeks, course.start_date, course.teacher, course.start_time))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading course data: {err}")
+        finally:
+            session.close()
+
+    def load_all_data(self):
+        self.load_teachers()
+        self.load_students()
+        self.load_courses()
+
+    def load_teachers(self):
+        session = self.db.get_session()
+        try:
+            teachers = session.query(Teacher).all()
+
+            for item in self.teachers_tree.get_children():
+                self.teachers_tree.delete(item)
+
+            for teacher in teachers:
+                self.teachers_tree.insert("", "end", values=(teacher.teacher_id, teacher.first_name, teacher.last_name, teacher.language_1, teacher.phone_no))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading teacher data: {err}")
+        finally:
+            session.close()
+
+    def load_students(self):
+        session = self.db.get_session()
+        try:
+            students = session.query(Student).all()
+
+            for item in self.students_tree.get_children():
+                self.students_tree.delete(item)
+
+            for student in students:
+                self.students_tree.insert("", "end", values=(student.participant_id, student.first_name, student.last_name, student.phone_no, student.client_name))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading student data: {err}")
+        finally:
+            session.close()
+
+    def load_courses(self):
+        session = self.db.get_session()
+        try:
+            courses = session.query(Course).all()
+
+            for item in self.courses_tree.get_children():
+                self.courses_tree.delete(item)
+
+            for course in courses:
+                self.courses_tree.insert("", "end", values=(course.course_id, course.course_name, course.language, course.level, course.course_length_weeks, course.start_date, course.teacher, course.start_time))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading course data: {err}")
+        finally:
+            session.close()
+
+    def delete_teacher_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Delete Teacher")
+        dialog.geometry("300x200")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="Enter Teacher ID to delete:", bg='yellow').pack(pady=10)
+        teacher_id_entry = tk.Entry(dialog)
+        teacher_id_entry.pack(pady=5)
+
+        def delete_teacher():
+            teacher_id = teacher_id_entry.get()
+            if not teacher_id:
+                messagebox.showwarning("Warning", "Teacher ID is required.")
+                return
+
+            session = self.db.get_session()
+            try:
+                teacher = session.query(Teacher).filter(Teacher.teacher_id == teacher_id).first()
+                if teacher:
+                    session.delete(teacher)
+                    session.commit()
+                    messagebox.showinfo("Success", "Teacher deleted successfully.")
+                    self.load_teachers()
+                else:
+                    messagebox.showwarning("Warning", "No teacher found with that ID.")
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error deleting teacher: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Delete Teacher", command=delete_teacher).pack(pady=20)
+
+    def delete_student_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Delete Student")
+        dialog.geometry("300x200")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="Enter Student ID to delete:", bg='yellow').pack(pady=10)
+        student_id_entry = tk.Entry(dialog)
+        student_id_entry.pack(pady=5)
+
+        def delete_student():
+            student_id = student_id_entry.get()
+            if not student_id:
+                messagebox.showwarning("Warning", "Student ID is required.")
+                return
+
+            session = self.db.get_session()
+            try:
+                student = session.query(Student).filter(Student.participant_id == student_id).first()
+                if student:
+                    session.delete(student)
+                    session.commit()
+                    messagebox.showinfo("Success", "Student deleted successfully.")
+                    self.load_students()
+                else:
+                    messagebox.showwarning("Warning", "No student found with that ID.")
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error deleting student: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Delete Student", command=delete_student).pack(pady=20)
+
+    def generate_report(self):
+        session = self.db.get_session()
+        try:
+            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"school_report_{now}.pdf"
+            doc = SimpleDocTemplate(filename, pagesize=letter)
+            elements = []
+
+            styles = getSampleStyleSheet()
+            elements.append(Paragraph("School Report", styles['Title']))
+            elements.append(Spacer(1, 20))
+
+            elements.append(Paragraph("Teachers", styles['Heading1']))
+            teachers = session.query(Teacher).all()
+
+            if teachers:
+                teacher_data = [['First Name', 'Last Name', 'Language', 'Phone']] + [[teacher.first_name, teacher.last_name, teacher.language_1, teacher.phone_no] for teacher in teachers]
+                teacher_table = Table(teacher_data)
+                teacher_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 14),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 12),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(teacher_table)
+
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph("Courses", styles['Heading1']))
+            courses = session.query(Course).all()
+
+            course_data = [['Course Name', 'Start Time', 'Teacher']] + [[course.course_name, course.start_time, str(course.teacher)] for course in courses]
+            course_table = Table(course_data)
+            course_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 12),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(course_table)
+
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph("Teacher's Signature: ______", styles['Normal']))
+            elements.append(Spacer(1, 40))
+
+            doc.build(elements)
+            messagebox.showinfo("Success", f"Report successfully created: {filename}")
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error generating report: {err}")
+        finally:
+            session.close()
+
+    def add_teacher_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add New Teacher")
+        dialog.geometry("400x400")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="First Name:", bg='yellow').pack()
+        first_name = tk.Entry(dialog)
+        first_name.pack()
+
+        tk.Label(dialog, text="Last Name:", bg='yellow').pack()
+        last_name = tk.Entry(dialog)
+        last_name.pack()
+
+        tk.Label(dialog, text="Language 1:", bg='yellow').pack()
+        lang1 = tk.Entry(dialog)
+        lang1.pack()
+
+        tk.Label(dialog, text="Phone Number:", bg='yellow').pack()
+        phone = tk.Entry(dialog)
+        phone.pack()
+
+        def save_teacher():
+            if not first_name.get() or not last_name.get() or not lang1.get() or not phone.get():
+                messagebox.showwarning("Warning", "All fields are required.")
+                return
+
+            session = self.db.get_session()
+            try:
+                new_teacher = Teacher(first_name=first_name.get(), last_name=last_name.get(), language_1=lang1.get(), phone_no=phone.get())
+                session.add(new_teacher)
+                session.commit()
+                messagebox.showinfo("Success", "Teacher added successfully")
+                self.load_teachers()
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error adding teacher: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Add Teacher", command=save_teacher).pack()
+
+    def add_student_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add New Student")
+        dialog.geometry("400x400")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="First Name:", bg='yellow').pack()
+        first_name = tk.Entry(dialog)
+        first_name.pack()
+
+        tk.Label(dialog, text="Last Name:", bg='yellow').pack()
+        last_name = tk.Entry(dialog)
+        last_name.pack()
+
+        tk.Label(dialog, text="Phone Number:", bg='yellow').pack()
+        phone = tk.Entry(dialog)
+        phone.pack()
+
+        tk.Label(dialog, text="Client Name:", bg='yellow').pack()
+        client_name = tk.Entry(dialog)
+        client_name.pack()
+
+        tk.Label(dialog, text="Email:", bg='yellow').pack()
+        email = tk.Entry(dialog)
+        email.pack()
+
+        def save_student():
+            if not first_name.get() or not last_name.get() or not phone.get() or not client_name.get() or not email.get():
+                messagebox.showwarning("Warning", "All fields are required.")
+                return
+
+            session = self.db.get_session()
+            try:
+                new_student = Student(first_name=first_name.get(), last_name=last_name.get(), phone_no=phone.get(), client_name=client_name.get(), email=email.get())
+                session.add(new_student)
+                session.commit()
+                messagebox.showinfo("Success", "Student added successfully")
+                self.load_students()
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error adding student: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Add Student", command=save_student).pack()
+
+    def add_course_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add New Course")
+        dialog.geometry("400x500")
+        dialog.configure(bg='yellow')
+
+        tk.Label(dialog, text="Course Name:", bg='yellow').pack()
+        course_name = tk.Entry(dialog)
+        course_name.pack()
+
+        tk.Label(dialog, text="Language:", bg='yellow').pack()
+        language = tk.Entry(dialog)
+        language.pack()
+
+        tk.Label(dialog, text="Level:", bg='yellow').pack()
+        level = tk.Entry(dialog)
+        level.pack()
+
+        tk.Label(dialog, text="Duration (Weeks):", bg='yellow').pack()
+        duration = tk.Entry(dialog)
+        duration.pack()
+
+        tk.Label(dialog, text="Start Date (YYYY-MM-DD):", bg='yellow').pack()
+        start_date = tk.Entry(dialog)
+        start_date.pack()
+
+        tk.Label(dialog, text="Teacher ID:", bg='yellow').pack()
+        teacher_id = tk.Entry(dialog)
+        teacher_id.pack()
+
+        tk.Label(dialog, text="Start Time:", bg='yellow').pack()
+        start_time = tk.Entry(dialog)
+        start_time.pack()
+
+        def save_course():
+            if not (course_name.get() and language.get() and level.get() and duration.get() and
+                    start_date.get() and teacher_id.get() and start_time.get()):
+                messagebox.showwarning("Warning", "All fields are required.")
+                return
+
+            session = self.db.get_session()
+            try:
+                new_course = Course(course_name=course_name.get(), language=language.get(), level=level.get(), course_length_weeks=int(duration.get()),
+                                    start_date=start_date.get(), teacher=int(teacher_id.get()), start_time=start_time.get())
+                session.add(new_course)
+                session.commit()
+                messagebox.showinfo("Success", "Course added successfully")
+                self.load_courses()
+                dialog.destroy()
+            except Exception as err:
+                messagebox.showerror("Error", f"Error adding course: {err}")
+            finally:
+                session.close()
+
+        tk.Button(dialog, text="Add Course", command=save_course).pack()
+
+    def show_participants(self):
+        session = self.db.get_session()
+        try:
+            students = session.query(Student).all()
+
+            if not students:
+                messagebox.showinfo("Participants", "No registered students.")
+                return
+
+            participants_window = tk.Toplevel(self.root)
+            participants_window.title("The participants list")
+            participants_window.geometry("600x400")
+            participants_window.configure(bg='yellow')
+
+            columns = ("Participant ID", "First Name", "Last Name", "Email")
+            participants_tree = ttk.Treeview(participants_window, columns=columns, show="headings")
+
+            for col in columns:
+                participants_tree.heading(col, text=col)
+                participants_tree.column(col, width=120)
+
+            scrollbar = ttk.Scrollbar(participants_window, orient=tk.VERTICAL, command=participants_tree.yview)
+            participants_tree.configure(yscrollcommand=scrollbar.set)
+
+            participants_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+            for student in students:
+                participants_tree.insert("", "end", values=(student.participant_id, student.first_name, student.last_name, student.email))
+
+        except Exception as err:
+            messagebox.showerror("Error", f"Error loading participant data: {err}")
+        finally:
+            session.close()
+
+    def run(self):
+        self.root.mainloop()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SchoolManagementSystem(root)
+    app.run()
