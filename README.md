@@ -1,3 +1,5 @@
+![image](https://github.com/user-attachments/assets/bc3a9099-fbad-4e36-aca1-7cf73d90c50b)
+
 # School Management System
 
 ## Introduction
@@ -14,5 +16,5 @@ The School Management System is an innovative application aimed at simplifying t
 
 
 
-![image](https://github.com/user-attachments/assets/a0952a9f-e76a-4816-aafb-dbc4e5c5420b)
+
 
