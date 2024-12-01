@@ -11,3 +11,8 @@ The School Management System is an innovative application aimed at simplifying t
 - **Backup data**: Ability to back up the database data and upload it to Google Drive.
 - **Advanced Search**: Search functionality for easy access to information
 -  (sort_treeview) for the student, teacher, and course to enable sorting by columns in the table.
+
+
+
+![image](https://github.com/user-attachments/assets/a0952a9f-e76a-4816-aafb-dbc4e5c5420b)
+
